@@ -1,12 +1,12 @@
-from enum import Enum
+from enum import StrEnum
 
 
-class TempUnit(str, Enum):
+class TempUnit(StrEnum):
     kelvin = "K"
     celsius = "°C"
 
 
-class Model(str, Enum):
+class Model(StrEnum):
     # Weather models
     arome = "arome"
     arome_antilles = "aromeAntilles"
@@ -32,7 +32,7 @@ class Model(str, Enum):
     cams_eu = "camsEu"
 
 
-class Parameter(str, Enum):
+class Parameter(StrEnum):
     # Temperature & humidity
     temp = "temp"
     dewpoint = "dewpoint"
@@ -81,7 +81,7 @@ class Parameter(str, Enum):
     pollen_ragweed = "pollenRagweed"
 
 
-class Level(str, Enum):
+class Level(StrEnum):
     surface = "surface"
     hPa1000 = "1000h"
     hPa950 = "950h"

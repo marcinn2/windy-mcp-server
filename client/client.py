@@ -26,11 +26,9 @@ class WindyClient:
         return self._http
 
     async def get_forecast(self, request: ForecastRequest) -> ForecastResponse:
-        payload = request.model_dump(mode="json", by_alias=False)
-        # Serialize enum values to their string representation
-        payload["model"] = request.model.value
-        payload["parameters"] = [p.value for p in request.parameters]
-        payload["levels"] = [lv.value for lv in request.levels]
+        # temp_unit is a client-side conversion concept, not a Windy API field.
+        # mode="json" serializes the enum fields to their string values.
+        payload = request.model_dump(mode="json", exclude={"temp_unit"})
         payload["key"] = self._api_key
 
         http = await self._get_http()
