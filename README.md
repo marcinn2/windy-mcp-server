@@ -91,16 +91,22 @@ You don't have to use the predefined prompts — just ask in natural language an
 
 ## Setup
 
-**Prerequisites:** [uv](https://docs.astral.sh/uv/), a [Windy API key](https://api.windy.com/keys)
+**Prerequisites:** a [Windy API key](https://api.windy.com/keys), plus either [uv](https://docs.astral.sh/uv/) (local stdio) or Docker (networked HTTP).
 
-Add to your MCP client config (e.g. `claude_desktop_config.json`):
+Releases are published as **container images on the GitHub Container Registry**. This repository does **not** publish to PyPI: the `windy-mcp-server` package on PyPI comes from the upstream project and does not carry the changes here, so install from the container image or straight from git.
+
+**Local stdio client.** Add to your MCP client config (e.g. `claude_desktop_config.json`):
 
 ```json
 {
   "mcpServers": {
     "windy": {
       "command": "uvx",
-      "args": ["windy-mcp-server"],
+      "args": [
+        "--from",
+        "git+https://github.com/marcinn2/windy-mcp-server",
+        "windy-mcp-server"
+      ],
       "env": {
         "WINDY_POINT_API_KEY": "your_api_key_here"
       }
@@ -108,6 +114,10 @@ Add to your MCP client config (e.g. `claude_desktop_config.json`):
   }
 }
 ```
+
+Pin a release by appending the tag: `git+https://github.com/marcinn2/windy-mcp-server@v0.3.1`.
+
+**Networked client.** Run the published image and point your client at its HTTP endpoint, see [Docker](#docker). The image's entrypoint always starts the Streamable HTTP transport, so it does not serve stdio.
 
 | Env | Required | Description |
 | --- | --- | --- |
@@ -127,7 +137,7 @@ The server supports two transports, selectable via CLI flags (or the matching `W
 | `--port` | `WINDY_MCP_PORT` | `8000` | Port to bind (HTTP only) |
 | `--path` | `WINDY_MCP_PATH` | `/mcp/` | Endpoint path (HTTP only) |
 
-Run a Streamable HTTP server:
+Run a Streamable HTTP server. The `windy-mcp-server` command below assumes an installed checkout; to run it without installing, use the published image (see [Docker](#docker)) or prefix the examples with `uvx --from git+https://github.com/marcinn2/windy-mcp-server`.
 
 ```bash
 WINDY_POINT_API_KEY=your_api_key_here windy-mcp-server --transport http --port 8000
@@ -149,7 +159,24 @@ A `GET /health` endpoint returns `{"status": "ok"}` and is **always unauthentica
 
 ## Docker
 
-A `Dockerfile` is included; the image's entrypoint always starts the Streamable HTTP transport on port 8000.
+Prebuilt images are published to the GitHub Container Registry on every release, for `linux/amd64` and `linux/arm64`:
+
+```bash
+docker pull ghcr.io/marcinn2/windy-mcp-server:latest    # or a version, e.g. :0.3.1
+```
+
+The image's entrypoint always starts the Streamable HTTP transport on port 8000.
+
+```bash
+docker run --rm -p 8000:8000 \
+  -e WINDY_POINT_API_KEY=your_api_key_here \
+  -e WINDY_MCP_AUTH_TOKEN=your_secret_token \
+  ghcr.io/marcinn2/windy-mcp-server:latest
+# endpoint: http://localhost:8000/mcp/  (Authorization: Bearer your_secret_token)
+# health:   http://localhost:8000/health
+```
+
+To build it yourself instead:
 
 ```bash
 docker build -t windy-mcp-server .

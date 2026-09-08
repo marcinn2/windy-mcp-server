@@ -24,6 +24,8 @@
 
 - feat: Document per-model parameter coverage and response units in the tool descriptions
 - test: Add a test suite covering the request shape, support matrix, unit conversion and error mapping, and run it in CI
+- feat: Pushing a version tag now runs the tests, publishes a multi-architecture container image to the GitHub Container Registry, and creates the GitHub Release
+- ci: Disable PyPI publishing; releases ship as container images, and the test suite runs before every release build
 
 
 ## v0.3.0 (2026-06-22)

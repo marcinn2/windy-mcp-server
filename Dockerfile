@@ -27,6 +27,19 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # --- Runtime stage: minimal image with just the venv ---
 FROM python:3.12-slim-bookworm AS runtime
 
+# Stamped by CI from the release tag; a local build is honestly labelled "dev".
+ARG VERSION=dev
+
+# Standard OCI metadata. `source` is the label GHCR reads to attach the package
+# to this repository, which is what gives it the repo's README and visibility.
+LABEL org.opencontainers.image.title="windy-mcp-server" \
+      org.opencontainers.image.description="Unofficial MCP server for the Windy Point Forecast API" \
+      org.opencontainers.image.source="https://github.com/marcinn2/windy-mcp-server" \
+      org.opencontainers.image.url="https://github.com/marcinn2/windy-mcp-server" \
+      org.opencontainers.image.documentation="https://github.com/marcinn2/windy-mcp-server#readme" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.version="${VERSION}"
+
 # Run as a non-root user.
 RUN groupadd --system app && useradd --system --gid app --home-dir /app app
 

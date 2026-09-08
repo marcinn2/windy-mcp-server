@@ -1,9 +1,14 @@
 name: Publish to PyPI
 
+# PyPI publishing is disabled. Releases ship as container images instead, see
+# publish-image.yml. This workflow no longer runs on version tags and is left
+# here so it can be run by hand, or re-enabled by restoring the tag trigger:
+#
+#   on:
+#     push:
+#       tags:
+#         - "v*.*.*"
 on:
-  push:
-    tags:
-      - "v*.*.*"
   workflow_dispatch:
 
 jobs:
