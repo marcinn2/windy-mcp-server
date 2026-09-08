@@ -78,6 +78,12 @@ jobs:
         with:
           enable-cache: true
 
+      - name: Install dependencies
+        run: uv sync --group dev
+
+      - name: Run tests
+        run: uv run pytest
+
       - name: Build package
         run: uv build
 
