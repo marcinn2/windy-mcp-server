@@ -36,7 +36,7 @@ class WindyClient:
 
         if response.status_code == 204:
             raise WindyNoContentError(
-                "The selected model has no data for the requested parameters.",
+                "The selected model does not provide any of the requested parameters.",
                 status_code=204,
             )
         if response.status_code == 400:

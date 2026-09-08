@@ -1,5 +1,31 @@
 # Changelog
 
+## v0.3.1 (2026-09-08)
+
+### BREAKING CHANGE
+
+- Weather forecasts no longer return the raw `wind_u-*` / `wind_v-*` vector components. Wind is now reported as `wind_speed-*` and `wind_dir-*` (the bearing the wind blows from, degrees clockwise from true north), which is what callers were misreading the components as.
+
+### Fixes
+
+- fix: Convert accumulated precipitation from metres to millimetres, and label it as a 3-hour accumulation
+- fix: Decode `ptype` and `weatherWarnings` numeric codes by attaching a legend of the codes present in the response
+- fix: Add the missing `cmems` sea model with its `currents` and `currentsTide` parameters
+- fix: Validate latitude and longitude ranges in the tool schemas instead of forwarding out-of-range coordinates to Windy
+- fix: Reject a model/parameter pairing the model cannot answer at all, naming the models that can, instead of returning an opaque 204
+- fix: Explain in a `notes` field which requested parameters the chosen model omits, rather than silently returning fewer series
+- fix: Warn when pressure levels are requested but no requested parameter varies by level
+- fix: Correct the 204 error message, which blamed the location for what is a model limitation
+- fix: Surface non-series fields from the Windy response instead of discarding them
+- fix: Point the `air_quality_check` prompt at `camsEu`, without which it could never return pollen
+- fix: Bound the map zoom level and drop the redundant overlay assignment from the generated map page
+
+### Changes
+
+- feat: Document per-model parameter coverage and response units in the tool descriptions
+- test: Add a test suite covering the request shape, support matrix, unit conversion and error mapping, and run it in CI
+
+
 ## v0.3.0 (2026-06-22)
 
 ### BREAKING CHANGE

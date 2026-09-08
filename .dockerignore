@@ -12,3 +12,4 @@ build
 .pre-commit-config.yaml
 .env
 *.env
+tests

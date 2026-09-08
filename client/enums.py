@@ -22,11 +22,12 @@ class Model(StrEnum):
     hrrr_conus = "hrrrConus"
     hrrr_alaska = "hrrrAlaska"
     can_hrdps = "canHrdps"
-    # Wave models
+    # Wave & sea models
     gfs_wave = "gfsWave"
     icon_wave = "iconWave"
     icon_eu_wave = "iconEuWave"
     can_rdwps_wave = "canRdwpsWave"
+    cmems = "cmems"
     # Air quality models
     cams = "cams"
     cams_eu = "camsEu"
@@ -63,6 +64,9 @@ class Parameter(StrEnum):
     waves_power = "wavesPower"
     swell1 = "swell1"
     swell2 = "swell2"
+    # Sea currents (cmems model)
+    currents = "currents"
+    currents_tide = "currentsTide"
     # Air quality
     aqi = "aqi"
     so2sm = "so2sm"

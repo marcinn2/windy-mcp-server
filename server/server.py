@@ -3,11 +3,12 @@ import logging
 import os
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Annotated, Literal
 
 from dotenv import load_dotenv
 from fastmcp import Context, FastMCP
 from fastmcp.server.auth.providers.jwt import StaticTokenVerifier
+from pydantic import Field
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
@@ -21,6 +22,8 @@ from client import (
     WindyClient,
     WindyNoContentError,
     WindyServerError,
+    describe_unsupported,
+    unusable_levels,
 )
 from server.map_embed import build_map_embed_html
 
@@ -54,7 +57,7 @@ WeatherModel = Literal[
     "canHrdps",
 ]
 
-WaveModel = Literal["gfsWave", "iconWave", "iconEuWave", "canRdwpsWave"]
+WaveModel = Literal["gfsWave", "iconWave", "iconEuWave", "canRdwpsWave", "cmems"]
 
 AirQualityModel = Literal["cams", "camsEu"]
 
@@ -79,7 +82,15 @@ WeatherParameter = Literal[
     "weatherWarnings",
 ]
 
-WaveParameter = Literal["waves", "windWaves", "wavesPower", "swell1", "swell2"]
+WaveParameter = Literal[
+    "waves",
+    "windWaves",
+    "wavesPower",
+    "swell1",
+    "swell2",
+    "currents",
+    "currentsTide",
+]
 
 AirQualityParameter = Literal[
     "aqi",
@@ -116,6 +127,13 @@ PressureLevel = Literal[
 ]
 
 TemperatureUnit = Literal["celsius", "kelvin"]
+
+Latitude = Annotated[
+    float, Field(ge=-90, le=90, description="Latitude in decimal degrees")
+]
+Longitude = Annotated[
+    float, Field(ge=-180, le=180, description="Longitude in decimal degrees")
+]
 
 MapOverlay = Literal[
     "wind",
@@ -179,30 +197,53 @@ def _fmt_ts(ms: int) -> str:
     return datetime.fromtimestamp(ms / 1000, tz=UTC).strftime("%Y-%m-%d %H:%M UTC")
 
 
-def _build_response(response) -> dict:
-    return {
-        "timestamps_utc": [_fmt_ts(ts) for ts in response.timestamps],
-        "series": [
-            {
-                "parameter_level": s.parameter_level,
-                "unit": s.unit,
-                "values": s.values,
-            }
-            for s in response.series
-        ],
+def _series_payload(s) -> dict:
+    payload = {
+        "parameter_level": s.parameter_level,
+        "unit": s.unit,
+        "values": s.values,
     }
+    # Only carried for parameters whose meaning or encoding is not self-evident,
+    # so ordinary series stay compact.
+    if s.description:
+        payload["description"] = s.description
+    if s.legend:
+        payload["legend"] = s.legend
+    return payload
 
 
-async def _call_forecast(
-    client: WindyClient, request: ForecastRequest, model_name: str
-) -> dict:
+def _build_response(response, notes: list[str]) -> dict:
+    payload: dict = {
+        "timestamps_utc": [_fmt_ts(ts) for ts in response.timestamps],
+        "series": [_series_payload(s) for s in response.series],
+    }
+    if notes:
+        payload["notes"] = notes
+    if response.extras:
+        payload["api_fields"] = response.extras
+    return payload
+
+
+async def _call_forecast(client: WindyClient, request: ForecastRequest) -> dict:
+    # Windy drops unsupported parameter/level series without comment, so say up
+    # front what the chosen model will not answer rather than leaving a silent
+    # gap in the result.
+    notes = [
+        note
+        for note in (
+            describe_unsupported(request.model, request.parameters),
+            unusable_levels(request.parameters, request.levels),
+        )
+        if note
+    ]
     try:
         response = await client.get_forecast(request)
-        return _build_response(response)
+        return _build_response(response, notes)
     except WindyNoContentError as e:
         raise ValueError(
-            f"No data available for model '{model_name}' with the requested"
-            " parameters at this location"
+            f"Model '{request.model}' returned no data for the requested "
+            "parameters. The model does not provide them; choose a model that "
+            "does. This is not a limitation of the location."
         ) from e
     except WindyBadRequestError as e:
         raise ValueError(f"Invalid request: {e}") from e
@@ -214,8 +255,8 @@ async def _call_forecast(
 
 
 async def get_weather_forecast(
-    lat: float,
-    lon: float,
+    lat: Latitude,
+    lon: Longitude,
     parameters: list[WeatherParameter],
     ctx: Context,
     model: WeatherModel = "gfs",
@@ -227,15 +268,36 @@ async def get_weather_forecast(
     Returns forecast time series for the requested parameters. Only the parameters you
     explicitly list are fetched — request only what you need.
 
+    Reading the result:
+        - Wind comes back as "wind_speed-<level>" plus "wind_dir-<level>", the bearing
+          in degrees that the wind blows FROM. There are no raw u/v components.
+        - "precip", "snowPrecip" and "convPrecip" come back as "past3hprecip" and
+          friends: an accumulation over the preceding 3 hours, in millimetres.
+        - "ptype" and "weatherWarnings" are numeric codes. Each carries a "legend"
+          mapping the codes present to their meaning. Never guess at these codes.
+        - Every series states its own unit. Report the unit given, not an assumed one.
+
+    Model coverage is not uniform, and parameters a model lacks are simply missing
+    from the result, with an explanation in the response "notes":
+        - "gh" needs icon, iconD2 or iconEu.
+        - "cbase" needs arome or aromeAntilles.
+        - "visibility" needs aromeFrance or aromeReunion.
+        - "weatherWarnings" needs namConus or canHrdps.
+        - "snowPrecip" is unavailable on namHawaii and canHrdps.
+        - Everything else works with any weather model.
+
     Args:
         lat: Latitude in decimal degrees (-90 to 90).
         lon: Longitude in decimal degrees (-180 to 180).
         parameters: Weather parameters to fetch. Choose from temperature, wind,
             precipitation, clouds, visibility, and atmospheric instability indicators.
         ctx: Injected server context.
-        model: Forecast model to use. Defaults to GFS (global coverage).
+        model: Forecast model to use. Defaults to GFS (global coverage). Regional
+            models are higher resolution but only cover their own area.
         levels: Pressure levels for vertical atmosphere data. Defaults to surface only.
-            Use hPa values (e.g. "850h", "500h") for upper-atmosphere queries.
+            Use hPa values (e.g. "850h", "500h") for upper-atmosphere queries. Levels
+            only apply to temp, dewpoint, wind, gh and rh; every other parameter is
+            returned at the surface whatever you ask for.
         temp_unit: Unit for temperature values. Defaults to celsius.
     """
     client: WindyClient = ctx.lifespan_context["client"]
@@ -248,28 +310,42 @@ async def get_weather_forecast(
         levels=resolved_levels,
         temp_unit=TempUnit.celsius if temp_unit == "celsius" else TempUnit.kelvin,
     )
-    return await _call_forecast(client, request, model)
+    return await _call_forecast(client, request)
 
 
 async def get_wave_forecast(
-    lat: float,
-    lon: float,
+    lat: Latitude,
+    lon: Longitude,
     parameters: list[WaveParameter],
     ctx: Context,
     model: WaveModel = "gfsWave",
 ) -> dict:
-    """Get an ocean wave forecast for a location from the Windy point forecast API.
+    """Get an ocean wave or current forecast from the Windy point forecast API.
 
-    Returns forecast time series for the requested wave parameters. Only the parameters
+    Returns forecast time series for the requested sea parameters. Only the parameters
     you explicitly list are fetched — request only what you need.
+
+    Reading the result:
+        - Each wave parameter expands into height, period and direction series, e.g.
+          "waves" becomes "waves_height-surface", "waves_period-surface" and
+          "waves_direction-surface".
+        - "currents" and "currentsTide" come back as u/v vector components.
+        - Every series states its own unit. Report the unit given, not an assumed one.
+
+    Model coverage is not uniform, and parameters a model lacks are simply missing
+    from the result, with an explanation in the response "notes":
+        - "waves", "wavesPower", "swell1" and "swell2" need a wave model
+          (gfsWave, iconWave, iconEuWave or canRdwpsWave).
+        - "windWaves" needs gfsWave or iconWave.
+        - "currents" and "currentsTide" need cmems, which provides nothing else.
 
     Args:
         lat: Latitude in decimal degrees (-90 to 90).
         lon: Longitude in decimal degrees (-180 to 180).
-        parameters: Wave parameters to fetch
-            (wave height, wind waves, swell, wave power).
+        parameters: Sea parameters to fetch (wave height, wind waves, swell, wave
+            power, sea currents).
         ctx: Injected server context.
-        model: Wave forecast model to use. Defaults to GFS Wave (global coverage).
+        model: Sea forecast model to use. Defaults to GFS Wave (global coverage).
     """
     client: WindyClient = ctx.lifespan_context["client"]
     request = ForecastRequest(
@@ -280,12 +356,12 @@ async def get_wave_forecast(
         levels=[Level.surface],
         temp_unit=TempUnit.kelvin,
     )
-    return await _call_forecast(client, request, model)
+    return await _call_forecast(client, request)
 
 
 async def get_air_quality_forecast(
-    lat: float,
-    lon: float,
+    lat: Latitude,
+    lon: Longitude,
     parameters: list[AirQualityParameter],
     ctx: Context,
     model: AirQualityModel = "cams",
@@ -295,6 +371,17 @@ async def get_air_quality_forecast(
     Returns forecast time series for the requested air quality or pollen parameters.
     Only the parameters you explicitly list are fetched — request only what you need.
 
+    Reading the result:
+        - Keys are prefixed by family: "aqi_us-surface", "chem_so2sm-surface",
+          "pollen_birch-surface" and so on.
+        - "aqi" is the US EPA air quality index, where higher is worse.
+        - Every series states its own unit. Report the unit given, not an assumed one.
+
+    Model coverage matters here: the six pollen parameters are available ONLY from
+    "camsEu", which covers Europe. Requesting pollen from the default "cams" returns
+    no pollen at all, so pass model="camsEu" for any pollen question. Parameters a
+    model lacks are missing from the result, with an explanation in "notes".
+
     Args:
         lat: Latitude in decimal degrees (-90 to 90).
         lon: Longitude in decimal degrees (-180 to 180).
@@ -302,7 +389,7 @@ async def get_air_quality_forecast(
             (AQI, particulates, gases, pollen types).
         ctx: Injected server context.
         model: Air quality model to use. Defaults to CAMS (global Copernicus service).
-            Use "camsEu" for higher-resolution European data.
+            Use "camsEu" for higher-resolution European data and for all pollen.
     """
     client: WindyClient = ctx.lifespan_context["client"]
     request = ForecastRequest(
@@ -313,17 +400,17 @@ async def get_air_quality_forecast(
         levels=[Level.surface],
         temp_unit=TempUnit.kelvin,
     )
-    return await _call_forecast(client, request, model)
+    return await _call_forecast(client, request)
 
 
 # --- Map tool (Windy Map Forecast API) ---
 
 
 async def get_windy_map(
-    lat: float,
-    lon: float,
+    lat: Latitude,
+    lon: Longitude,
     overlay: MapOverlay = "wind",
-    zoom: int = 5,
+    zoom: Annotated[int, Field(ge=3, le=18)] = 5,
 ) -> dict:
     """Render an interactive Windy weather map for a location (Windy Map Forecast API).
 
@@ -337,7 +424,8 @@ async def get_windy_map(
         lon: Longitude in decimal degrees (-180 to 180).
         overlay: Weather layer to display (e.g. wind, temp, rain, clouds).
             Defaults to wind.
-        zoom: Initial zoom level, roughly 3 (continental) to 11 (city). Defaults to 5.
+        zoom: Initial zoom level, from 3 (continental) to 18 (street). Roughly 5 for
+            a region and 11 for a city. Defaults to 5.
     """
     html = build_map_embed_html(
         key=MAP_API_KEY, lat=lat, lon=lon, zoom=zoom, overlay=overlay
@@ -379,8 +467,10 @@ def surf_report(spot: str) -> str:
 def air_quality_check(location: str, health_context: str = "") -> str:
     """Air quality and pollen outlook, optionally tailored to a health concern."""
     prompt = (
-        f"Use get_air_quality_forecast to fetch AQI, PM2.5, PM10, NO2, O3, and the "
-        f"relevant pollen types for {location}, then summarize the air quality outlook."
+        f"Use get_air_quality_forecast to fetch AQI, PM2.5, PM10, NO2 and O3 for "
+        f"{location}, then summarize the air quality outlook. Pollen is only "
+        f"available from the camsEu model (Europe), so if {location} is in Europe "
+        f"make a second call with model='camsEu' for the relevant pollen types."
     )
     if health_context:
         prompt += f" Tailor the advice to this health context: {health_context}."

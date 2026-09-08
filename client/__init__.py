@@ -1,3 +1,10 @@
+from .capabilities import (
+    LEVEL_AWARE_PARAMETERS,
+    describe_unsupported,
+    models_for,
+    unsupported_parameters,
+    unusable_levels,
+)
 from .client import WindyClient
 from .enums import Level, Model, Parameter, TempUnit
 from .exceptions import (
@@ -22,4 +29,9 @@ __all__ = [
     "WindyBadRequestError",
     "WindyNoContentError",
     "WindyServerError",
+    "LEVEL_AWARE_PARAMETERS",
+    "describe_unsupported",
+    "models_for",
+    "unsupported_parameters",
+    "unusable_levels",
 ]

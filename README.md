@@ -15,16 +15,16 @@ Fetch atmospheric weather data for any coordinates.
 - **Temperature units:** Celsius or Kelvin
 
 ### `get_wave_forecast`
-Fetch ocean wave data for any coastal or open-water coordinates.
+Fetch ocean wave and current data for any coastal or open-water coordinates.
 
-- **Parameters:** significant wave height, wind waves, wave power, swell 1 & 2
-- **Models:** GFS Wave, ICON Wave, ICON-EU Wave, RDWPS (Canada)
+- **Parameters:** significant wave height, wind waves, wave power, swell 1 & 2, sea currents, tidal currents
+- **Models:** GFS Wave, ICON Wave, ICON-EU Wave, RDWPS (Canada), CMEMS (currents only)
 
 ### `get_air_quality_forecast`
 Fetch air quality and pollen forecasts for any location.
 
 - **Parameters:** AQI, SO₂, dust, CO, O₃, NO₂, PM10, PM2.5, pollen (alder, birch, grass, mugwort, olive, ragweed)
-- **Models:** CAMS (global), CAMS-EU (higher-resolution European data)
+- **Models:** CAMS (global), CAMS-EU (higher-resolution European data). **Pollen is CAMS-EU only.**
 
 ### `get_windy_map`
 Render an interactive Windy weather map for any location using the Windy **Map Forecast API**. Requires `WINDY_MAP_API_KEY`.
@@ -35,6 +35,19 @@ Because the Map Forecast API is a browser (Leaflet) library rather than a data e
 - **Parameters:** lat, lon, overlay, zoom
 
 > **Note:** The returned HTML embeds your Map Forecast API key client-side (as the Windy Map API requires) and loads third-party scripts (`unpkg.com`, `api.windy.com`). [Domain-restrict the Map key](https://api.windy.com/keys) in your Windy dashboard, and if you publish the page to end users, the Windy map library may set cookies/local storage in their browser — add cookie consent/notice as required by the ePrivacy Directive. See [Data handling & security](#data-handling--security).
+
+## Reading the results
+
+Windy returns raw model output. These tools decode the parts that are easy to misread:
+
+| Windy returns | The tools return |
+| --- | --- |
+| `wind_u` / `wind_v` vector components | `wind_speed` plus `wind_dir`, the bearing in degrees the wind blows **from** |
+| Temperature in Kelvin | Celsius by default, at every pressure level (`temp_unit` switches it back) |
+| `past3hprecip` in metres | Millimetres, labelled as a 3-hour accumulation |
+| `ptype` / `weatherWarnings` integer codes | The same codes plus a `legend` naming the ones present |
+
+Model coverage is uneven: `gh` needs an ICON model, `cbase` needs AROME, `visibility` needs AROME France or Réunion, `weatherWarnings` needs NAM CONUS or HRDPS, `windWaves` needs GFS Wave or ICON Wave, currents need CMEMS, and pollen needs CAMS-EU. Windy drops unsupported series silently, so a response that is missing one carries a `notes` entry naming the models that do provide it. Asking a model for nothing it supports is refused before the request is sent.
 
 ## Prompts
 
@@ -149,6 +162,17 @@ docker run --rm -p 8000:8000 \
 ```
 
 `WINDY_MCP_AUTH_TOKEN` is optional but recommended for HTTP. Override host/port/path via the `WINDY_MCP_*` env vars, e.g. `-e WINDY_MCP_PORT=9000 -p 9000:9000`. The image also defines a `HEALTHCHECK` against `/health`.
+
+## Development
+
+```bash
+uv sync --group dev
+uv run pytest            # test suite (no API key or network access required)
+uv run pre-commit run --all-files
+```
+
+The tests stub the Windy HTTP call, so they assert the request body, the model/parameter
+support matrix, unit conversion, and error mapping without spending API quota.
 
 ## Data handling & security
 

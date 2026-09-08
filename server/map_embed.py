@@ -27,7 +27,7 @@ def build_map_embed_html(
         key: Windy Map Forecast API key (used client-side by the boot script).
         lat: Latitude in decimal degrees.
         lon: Longitude in decimal degrees.
-        zoom: Initial map zoom level.
+        zoom: Initial map zoom level (3 continental to 18 street).
         overlay: Weather layer to display (e.g. "wind", "temp", "rain").
     """
     options = {
@@ -51,11 +51,10 @@ def build_map_embed_html(
 <body>
   <div id="windy"></div>
   <script>
+    // `overlay` is a documented windyInit option, so the map opens on the
+    // right layer with no follow-up call needed.
     const options = {json.dumps(options)};
-    windyInit(options, (windyAPI) => {{
-      const {{ store }} = windyAPI;
-      store.set("overlay", {json.dumps(overlay)});
-    }});
+    windyInit(options, () => {{}});
   </script>
 </body>
 </html>
